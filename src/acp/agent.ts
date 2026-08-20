@@ -254,7 +254,8 @@ export class PiAcpAgent implements ACPAgent {
       const { message, images } = promptToPiMessage(prompt)
 
       if (!session.hasPendingTurn) {
-        if ((params as any)?._meta?.steering?.idleBehavior === 'promptRequired') {
+        const meta = params._meta as { steering?: { idleBehavior?: string } } | undefined
+        if (meta?.steering?.idleBehavior === 'promptRequired') {
           return { outcome: 'promptRequired', reason: 'noRunningTurn' }
         }
         // Fire-and-forget: the steering response must not block on a whole turn.
@@ -262,7 +263,11 @@ export class PiAcpAgent implements ACPAgent {
         return { outcome: 'startedNewTurn' }
       }
 
-      await session.proc.steer(message, images)
+      try {
+        await session.proc.steer(message, images)
+      } catch (e) {
+        throw RequestError.internalError({}, String((e as Error)?.message ?? e))
+      }
       return { outcome: 'injected' }
     }
 
