@@ -35,6 +35,12 @@ export class FakePiRpcProcess {
   sessionStats: PiSessionStats = {}
   /** When set, `getSessionStats()` rejects with this error. */
   sessionStatsError: unknown = null
+  disposeCount = 0
+
+  dispose(): void {
+    this.disposeCount++
+    this.emit({ type: 'process_exit', error: 'pi process exited (code=null, signal=SIGTERM)' })
+  }
 
   onEvent(handler: (ev: PiRpcEvent) => void): () => void {
     this.handlers.push(handler)
@@ -83,6 +89,10 @@ export class FakePiRpcProcess {
     this.getSessionStatsCount += 1
     if (this.sessionStatsError) throw this.sessionStatsError
     return this.sessionStats
+  }
+
+  async getCommands(): Promise<unknown> {
+    return { commands: [] }
   }
 }
 
