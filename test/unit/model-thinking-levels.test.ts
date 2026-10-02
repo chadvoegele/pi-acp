@@ -253,7 +253,9 @@ for (const failure of ['discovery', 'missing-current', 'inconsistent-current', '
     assert.ok(sessions.maybeGet('existing'))
     assert.equal(existingDisposed, 0)
     assert.equal(historyReads, 0)
-    assert.equal(conn.updates.length, 0)
+    assert.equal(conn.updates.length, 1)
+    assert.equal(conn.updates[0]?.update.sessionUpdate, 'session_info_update')
+    assert.deepEqual(conn.updates[0]?.update._meta, { piAcp: { queueDepth: 0, running: false } })
     assert.equal(readFileSync(sessionFile, 'utf8'), 'persisted history\n')
     assert.equal(store.get('s1')?.sessionFile, sessionFile)
     shouldFail = false
