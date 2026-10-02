@@ -12,6 +12,11 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
+    if (process.platform === 'linux') {
+      // Container PID 1 may leave terminated children unreaped.
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+      if (stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')) return false
+    }
     return true
   } catch {
     return false
@@ -39,7 +44,8 @@ const sessionId = 'test-' + process.pid;
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const command = JSON.parse(line);
   const data = command.type === 'get_state'
-    ? { sessionId, sessionFile: process.cwd() + '/' + sessionId + '.jsonl', model: { provider: 'test', id: 'model' } }
+    ? { sessionId, sessionFile: process.cwd() + '/' + sessionId + '.jsonl', model: { provider: 'test', id: 'model' }, thinkingLevel: 'medium' }
+    : command.type === 'get_available_thinking_levels' ? { levels: ['medium', 'high'] }
     : command.type === 'get_available_models' ? { models: [{ provider: 'test', id: 'model' }] }
     : command.type === 'get_messages' ? { messages: [] } : { commands: [] };
   console.log(JSON.stringify({ type: 'response', id: command.id, command: command.type, success: true, data }));
