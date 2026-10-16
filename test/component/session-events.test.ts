@@ -28,8 +28,11 @@ test('PiAcpSession: emits agent_message_chunk for text_delta', async () => {
 
   assert.equal(conn.updates.length, 1)
   assert.equal(conn.updates[0]!.sessionId, 's1')
-  assert.deepEqual(conn.updates[0]!.update, {
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  assert.deepEqual(update, {
     sessionUpdate: 'agent_message_chunk',
+    messageId: update.messageId,
     content: { type: 'text', text: 'hi' }
   })
 })
@@ -56,8 +59,11 @@ test('PiAcpSession: emits agent_thought_chunk for thinking_delta', async () => {
 
   assert.equal(conn.updates.length, 1)
   assert.equal(conn.updates[0]!.sessionId, 's1')
-  assert.deepEqual(conn.updates[0]!.update, {
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  assert.deepEqual(update, {
     sessionUpdate: 'agent_thought_chunk',
+    messageId: update.messageId,
     content: { type: 'text', text: 'thinking...' }
   })
 })
@@ -463,15 +469,18 @@ test('PiAcpSession: preserves ordering when auto_retry_start is interleaved with
 
   await new Promise(r => setTimeout(r, 0))
 
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  const messageId = update.messageId
   assert.deepEqual(
     conn.updates.map(u => u.update),
     [
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'before ' } },
+      { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: 'before ' } },
       {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Retrying (attempt 1/2, waiting 2s)...' }
       },
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'after' } }
+      { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: 'after' } }
     ]
   )
 })

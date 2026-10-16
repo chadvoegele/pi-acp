@@ -326,6 +326,7 @@ export class PiAcpSession {
   // Ensure `session/update` notifications are sent in order and can be awaited
   // before completing a `session/prompt` request.
   private lastEmit: Promise<void> = Promise.resolve()
+  private assistantMessageId: string | undefined
 
   constructor(opts: {
     sessionId: string
@@ -491,6 +492,7 @@ export class PiAcpSession {
   private finishClosed(reason: StopReason, error?: string): void {
     if (this.closed) return
     this.closed = true
+    this.assistantMessageId = undefined
     const pending = this.pendingTurn
     const queued = this.turnQueue.splice(0)
     this.pendingTurn = null
@@ -701,6 +703,16 @@ export class PiAcpSession {
         this.finishClosed(this.cancelRequested ? 'cancelled' : 'error', stringProp(ev, 'error') ?? undefined)
         break
       }
+      case 'message_start': {
+        const message = ev.message as { role?: unknown } | undefined
+        if (message?.role === 'assistant') this.assistantMessageId = crypto.randomUUID()
+        break
+      }
+      case 'message_end': {
+        const message = ev.message as { role?: unknown } | undefined
+        if (message?.role === 'assistant') this.assistantMessageId = undefined
+        break
+      }
       case 'message_update': {
         const ame = (ev as any).assistantMessageEvent
 
@@ -708,6 +720,7 @@ export class PiAcpSession {
         if (ame?.type === 'text_delta' && typeof ame.delta === 'string') {
           this.emit({
             sessionUpdate: 'agent_message_chunk',
+            messageId: (this.assistantMessageId ??= crypto.randomUUID()),
             content: { type: 'text', text: ame.delta } satisfies ContentBlock
           })
           break
@@ -716,6 +729,7 @@ export class PiAcpSession {
         if (ame?.type === 'thinking_delta' && typeof ame.delta === 'string') {
           this.emit({
             sessionUpdate: 'agent_thought_chunk',
+            messageId: (this.assistantMessageId ??= crypto.randomUUID()),
             content: { type: 'text', text: ame.delta } satisfies ContentBlock
           })
           break
