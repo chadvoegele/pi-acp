@@ -103,6 +103,16 @@ Existing tests that compare complete chunk objects must account for the new fiel
 
 The guarantee required by bridge PR #27 covers **live Pi-generated assistant text**, not every update named `agent_message_chunk`. ID-less notices remain subject to the bridge's existing compatibility and notification-filtering behavior; unsolicited notices are not made reliably renderable by this change.
 
+## Related upstream work
+
+No upstream PR specifically proposing `messageId` support was found in the PR list and message-ID searches reviewed for this draft. These changes touch related behavior; they are not dependencies unless noted:
+
+- [#134: adaptively coalesce streaming deltas](https://github.com/svkozak/pi-acp/pull/134) (open) batches adjacent text and thought updates. Any combined implementation must include `messageId` in its batching key, never combine different assistant messages, and preserve IDs captured before asynchronous delivery. Add a regression test with adjacent same-kind deltas from different messages.
+- [#96: coalesce trailing reasoning](https://github.com/svkozak/pi-acp/pull/96) (open) buffers text around trailing thinking deltas. Held chunks must retain their original identity; a thought/text transition or buffer flush must not create a new message ID. The shared ID does not replace reasoning-block ordering.
+- [#142: track background work through completion and cancellation](https://github.com/svkozak/pi-acp/pull/142) (open) extends prompt ownership through background jobs and continuations. Message identity must remain independent of that ownership: each assistant response gets its own ID whether or not a parent prompt remains active. Verify cleanup when that work replaces or terminates a subprocess.
+- [#79: wait for Pi session settlement](https://github.com/svkozak/pi-acp/pull/79) (merged) establishes `agent_settled` as the prompt-completion boundary. Preserve it; message start/end tracks individual responses, not prompt settlement.
+- [#61: emit startup information in-turn](https://github.com/svkozak/pi-acp/pull/61) (open) documents clients rejecting out-of-turn text. IDs do not make unsolicited delivery acceptable to every ACP client. This proposal preserves existing forwarding for clients such as the Matrix bridge; it does not relax client protocol checks or move startup notices into model messages.
+
 ## Verification
 
 - Multiple text deltas and text-content blocks in one assistant start/end pair share one nonempty ID and concatenate to exactly the original text.
