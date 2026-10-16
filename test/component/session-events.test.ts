@@ -4,7 +4,60 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PiAcpSession } from '../../src/acp/session.js'
+import type { PiRpcProcess } from '../../src/pi-rpc/process.js'
 import { FakeAgentSideConnection, FakePiRpcProcess, asAgentConn } from '../helpers/fakes.js'
+
+test('PiAcpSession: preserves assistant IDs until a message boundary', async () => {
+  const conn = new FakeAgentSideConnection()
+  const proc = new FakePiRpcProcess()
+  const session = new PiAcpSession({
+    sessionId: 's1',
+    cwd: process.cwd(),
+    mcpServers: [],
+    proc: proc as unknown as PiRpcProcess,
+    conn: asAgentConn(conn)
+  })
+  const boundary = (type: string, role = 'assistant') => proc.emit({ type, message: { role } })
+  const delta = (type = 'text_delta') =>
+    proc.emit({ type: 'message_update', assistantMessageEvent: { type, delta: 'hi' } })
+
+  boundary('message_start')
+  delta('thinking_delta')
+  delta()
+  for (const role of ['user', 'toolResult']) {
+    boundary('message_start', role)
+    boundary('message_end', role)
+  }
+  proc.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'toolcall_start', toolCall: { id: 't1', name: 'read', arguments: {} } }
+  })
+  delta()
+  boundary('message_end')
+  delta() // Missing start: allocate lazily after the previous message ended.
+  boundary('message_start')
+  delta()
+  boundary('message_start') // Recover a missing end without reusing the old ID.
+  delta('thinking_delta')
+  delta()
+  boundary('message_end')
+  boundary('message_start')
+  boundary('message_end') // Empty messages must not publish placeholders.
+  await session.publishContextUsage()
+
+  const updates = conn.updates.flatMap(({ update }) =>
+    update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_thought_chunk' ? [update] : []
+  )
+  assert.equal(updates.length, 7)
+  const ids = updates.map(update => update.messageId)
+  assert.ok(ids.every(id => typeof id === 'string' && id.length > 0))
+  assert.deepEqual(ids, [ids[0], ids[0], ids[0], ids[3], ids[4], ids[5], ids[5]])
+  assert.equal(new Set(ids).size, 4)
+  assert.deepEqual(
+    updates.map(update => update.content),
+    Array(7).fill({ type: 'text', text: 'hi' })
+  )
+})
 
 test('PiAcpSession: emits agent_message_chunk for text_delta', async () => {
   const conn = new FakeAgentSideConnection()
@@ -28,8 +81,11 @@ test('PiAcpSession: emits agent_message_chunk for text_delta', async () => {
 
   assert.equal(conn.updates.length, 1)
   assert.equal(conn.updates[0]!.sessionId, 's1')
-  assert.deepEqual(conn.updates[0]!.update, {
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  assert.deepEqual(update, {
     sessionUpdate: 'agent_message_chunk',
+    messageId: update.messageId,
     content: { type: 'text', text: 'hi' }
   })
 })
@@ -56,8 +112,11 @@ test('PiAcpSession: emits agent_thought_chunk for thinking_delta', async () => {
 
   assert.equal(conn.updates.length, 1)
   assert.equal(conn.updates[0]!.sessionId, 's1')
-  assert.deepEqual(conn.updates[0]!.update, {
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  assert.deepEqual(update, {
     sessionUpdate: 'agent_thought_chunk',
+    messageId: update.messageId,
     content: { type: 'text', text: 'thinking...' }
   })
 })
@@ -463,15 +522,18 @@ test('PiAcpSession: preserves ordering when auto_retry_start is interleaved with
 
   await new Promise(r => setTimeout(r, 0))
 
+  const update = conn.updates[0]!.update
+  assert.ok('messageId' in update && update.messageId)
+  const messageId = update.messageId
   assert.deepEqual(
     conn.updates.map(u => u.update),
     [
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'before ' } },
+      { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: 'before ' } },
       {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Retrying (attempt 1/2, waiting 2s)...' }
       },
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'after' } }
+      { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: 'after' } }
     ]
   )
 })
