@@ -323,7 +323,7 @@ export class PiAcpSession {
   // Ensure `session/update` notifications are sent in order and can be awaited
   // before completing a `session/prompt` request.
   private lastEmit: Promise<void> = Promise.resolve()
-  private assistantChunk: { contentIndex: number; messageId: string } | undefined
+  private assitantId: { contentIndex: number; messageId: string } | undefined
 
   constructor(opts: {
     sessionId: string
@@ -648,24 +648,24 @@ export class PiAcpSession {
 
       case 'message_start': {
         const message = ev.message as { role?: unknown } | undefined
-        if (message?.role === 'assistant') this.assistantChunk = undefined
+        if (message?.role === 'assistant') this.assitantId = undefined
         break
       }
       case 'message_end': {
         const message = ev.message as { role?: unknown } | undefined
-        if (message?.role === 'assistant') this.assistantChunk = undefined
+        if (message?.role === 'assistant') this.assitantId = undefined
         break
       }
       case 'message_update': {
         const ame = (ev as any).assistantMessageEvent
 
         if ((ame?.type === 'text_delta' || ame?.type === 'thinking_delta') && typeof ame.delta === 'string') {
-          if (!this.assistantChunk || this.assistantChunk.contentIndex !== ame.contentIndex) {
-            this.assistantChunk = { contentIndex: ame.contentIndex, messageId: crypto.randomUUID() }
+          if (!this.assitantId || this.assitantId.contentIndex !== ame.contentIndex) {
+            this.assitantId = { contentIndex: ame.contentIndex, messageId: crypto.randomUUID() }
           }
           this.emit({
             sessionUpdate: ame.type === 'text_delta' ? 'agent_message_chunk' : 'agent_thought_chunk',
-            messageId: this.assistantChunk.messageId,
+            messageId: this.assitantId.messageId,
             content: { type: 'text', text: ame.delta } satisfies ContentBlock
           })
           break
