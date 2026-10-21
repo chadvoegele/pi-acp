@@ -659,13 +659,28 @@ export class PiAcpSession {
       case 'message_update': {
         const ame = (ev as any).assistantMessageEvent
 
+        let messageId: string | undefined
         if ((ame?.type === 'text_delta' || ame?.type === 'thinking_delta') && typeof ame.delta === 'string') {
           if (!this.assitantId || this.assitantId.contentIndex !== ame.contentIndex) {
             this.assitantId = { contentIndex: ame.contentIndex, messageId: crypto.randomUUID() }
           }
+          messageId = this.assitantId.messageId
+        }
+
+        // Stream assistant text.
+        if (ame?.type === 'text_delta' && typeof ame.delta === 'string') {
           this.emit({
-            sessionUpdate: ame.type === 'text_delta' ? 'agent_message_chunk' : 'agent_thought_chunk',
-            messageId: this.assitantId.messageId,
+            sessionUpdate: 'agent_message_chunk',
+            messageId,
+            content: { type: 'text', text: ame.delta } satisfies ContentBlock
+          })
+          break
+        }
+
+        if (ame?.type === 'thinking_delta' && typeof ame.delta === 'string') {
+          this.emit({
+            sessionUpdate: 'agent_thought_chunk',
+            messageId,
             content: { type: 'text', text: ame.delta } satisfies ContentBlock
           })
           break
