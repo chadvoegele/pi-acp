@@ -7,7 +7,7 @@ import { PiAcpSession } from '../../src/acp/session.js'
 import type { PiRpcProcess } from '../../src/pi-rpc/process.js'
 import { FakeAgentSideConnection, FakePiRpcProcess, asAgentConn } from '../helpers/fakes.js'
 
-test('PiAcpSession: preserves assistant IDs until a message boundary or teardown', async () => {
+test('PiAcpSession: preserves assistant IDs within each content block until teardown', async () => {
   const conn = new FakeAgentSideConnection()
   const proc = new FakePiRpcProcess()
   const session = new PiAcpSession({
@@ -18,46 +18,54 @@ test('PiAcpSession: preserves assistant IDs until a message boundary or teardown
     conn: asAgentConn(conn)
   })
   const boundary = (type: string, role = 'assistant') => proc.emit({ type, message: { role } })
-  const delta = (type = 'text_delta') =>
-    proc.emit({ type: 'message_update', assistantMessageEvent: { type, delta: 'hi' } })
+  const delta = (contentIndex: number, type = 'text_delta') =>
+    proc.emit({ type: 'message_update', assistantMessageEvent: { type, contentIndex, delta: 'hi' } })
 
   boundary('message_start')
-  delta('thinking_delta')
-  delta()
+  delta(0, 'thinking_delta')
+  delta(0, 'thinking_delta')
+  delta(1)
+  delta(1)
   for (const role of ['user', 'toolResult']) {
     boundary('message_start', role)
     boundary('message_end', role)
   }
   proc.emit({
     type: 'message_update',
-    assistantMessageEvent: { type: 'toolcall_start', toolCall: { id: 't1', name: 'read', arguments: {} } }
+    assistantMessageEvent: {
+      type: 'toolcall_start',
+      contentIndex: 2,
+      toolCall: { id: 't1', name: 'read', arguments: {} }
+    }
   })
-  delta()
+  delta(1)
+  delta(3) // A separate text block needs a new ID even though its kind is unchanged.
+  delta(3)
   boundary('message_end')
-  delta() // Missing start: allocate lazily after the previous message ended.
+  delta(0) // Missing start: allocate lazily after the previous message ended.
   boundary('message_start')
-  delta()
+  delta(0)
   boundary('message_start') // Recover a missing end without reusing the old ID.
-  delta('thinking_delta')
-  delta()
+  delta(0, 'thinking_delta')
+  delta(1)
   boundary('message_end')
   boundary('message_start')
   boundary('message_end') // Empty messages must not publish placeholders.
   session.dispose()
-  delta() // Events after teardown must not publish.
+  delta(0) // Events after teardown must not publish.
   await session.publishContextUsage()
 
   const updates = conn.updates.flatMap(({ update }) =>
     update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_thought_chunk' ? [update] : []
   )
-  assert.equal(updates.length, 7)
+  assert.equal(updates.length, 11)
   const ids = updates.map(update => update.messageId)
   assert.ok(ids.every(id => typeof id === 'string' && id.length > 0))
-  assert.deepEqual(ids, [ids[0], ids[0], ids[0], ids[3], ids[4], ids[5], ids[5]])
-  assert.equal(new Set(ids).size, 4)
+  assert.deepEqual(ids, [ids[0], ids[0], ids[2], ids[2], ids[2], ids[5], ids[5], ids[7], ids[8], ids[9], ids[10]])
+  assert.equal(new Set(ids).size, 7)
   assert.deepEqual(
     updates.map(update => update.content),
-    Array(7).fill({ type: 'text', text: 'hi' })
+    Array(11).fill({ type: 'text', text: 'hi' })
   )
   assert.equal(session.hasPendingTurn, false)
 })
@@ -77,7 +85,7 @@ test('PiAcpSession: emits agent_message_chunk for text_delta', async () => {
 
   proc.emit({
     type: 'message_update',
-    assistantMessageEvent: { type: 'text_delta', delta: 'hi' }
+    assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'hi' }
   })
 
   await new Promise(r => setTimeout(r, 0))
@@ -108,7 +116,7 @@ test('PiAcpSession: emits agent_thought_chunk for thinking_delta', async () => {
 
   proc.emit({
     type: 'message_update',
-    assistantMessageEvent: { type: 'thinking_delta', delta: 'thinking...' }
+    assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: 'thinking...' }
   })
 
   await new Promise(r => setTimeout(r, 0))
@@ -519,9 +527,12 @@ test('PiAcpSession: preserves ordering when auto_retry_start is interleaved with
     fileCommands: []
   })
 
-  proc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'before ' } })
+  proc.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'before ' }
+  })
   proc.emit({ type: 'auto_retry_start', attempt: 1, maxAttempts: 2, delayMs: 2000 } as any)
-  proc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'after' } })
+  proc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'after' } })
 
   await new Promise(r => setTimeout(r, 0))
 
