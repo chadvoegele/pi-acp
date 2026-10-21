@@ -651,11 +651,13 @@ export class PiAcpSession {
         if (message?.role === 'assistant') this.assitantId = undefined
         break
       }
+
       case 'message_end': {
         const message = ev.message as { role?: unknown } | undefined
         if (message?.role === 'assistant') this.assitantId = undefined
         break
       }
+
       case 'message_update': {
         const ame = (ev as any).assistantMessageEvent
 
